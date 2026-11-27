@@ -3,7 +3,12 @@ import '../models/user_model.dart';
 import '../services/database_helper.dart';
 import '../utils/app_routes.dart';
 import '../utils/app_theme.dart';
+import '../utils/data_events.dart';
 import '../utils/session_manager.dart';
+import 'account_security_screen.dart';
+import 'borrowing_history_screen.dart';
+import 'favorites_screen.dart';
+import 'settings_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({Key? key}) : super(key: key);
@@ -21,7 +26,14 @@ class _AccountScreenState extends State<AccountScreen> {
   @override
   void initState() {
     super.initState();
+    DataEvents.changed.addListener(_loadData);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    DataEvents.changed.removeListener(_loadData);
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -52,6 +64,33 @@ class _AccountScreenState extends State<AccountScreen> {
         context, AppRoutes.login, (route) => false);
   }
 
+  void _open(Widget page) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+  }
+
+  Future<void> _editName() async {
+    final user = _user;
+    if (user == null) return;
+
+    // Controller dikelola di dalam dialog sendiri (lihat _EditNameDialog),
+    // jadi tidak perlu dispose manual di sini.
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (_) => _EditNameDialog(initialName: user.name),
+    );
+
+    if (newName == null || newName.isEmpty || newName == user.name) return;
+
+    await DatabaseHelper.instance.updateUserName(user.id!, newName);
+    await SessionManager.saveSession(user.id!, newName);
+    DataEvents.notify();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Nama berhasil diperbarui')),
+    );
+  }
+
   Future<void> _confirmLogout() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -75,12 +114,6 @@ class _AccountScreenState extends State<AccountScreen> {
       await SessionManager.clearSession();
       _goToLogin();
     }
-  }
-
-  void _comingSoon() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Fitur ini segera hadir.')),
-    );
   }
 
   @override
@@ -135,7 +168,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
               ),
               OutlinedButton.icon(
-                onPressed: _comingSoon,
+                onPressed: _editName,
                 icon: const Icon(Icons.edit, size: 16),
                 label: const Text('Ubah'),
                 style: OutlinedButton.styleFrom(
@@ -182,25 +215,25 @@ class _AccountScreenState extends State<AccountScreen> {
             icon: Icons.shield_outlined,
             title: 'Akun & Keamanan',
             subtitle: 'Atur info pribadi dan keamanan akunmu.',
-            onTap: _comingSoon,
+            onTap: () => _open(AccountSecurityScreen(email: email)),
           ),
           _MenuTile(
             icon: Icons.favorite_border_rounded,
             title: 'Favorit Saya',
             subtitle: 'Lihat buku yang kamu sukai.',
-            onTap: _comingSoon,
+            onTap: () => _open(const FavoritesScreen()),
           ),
           _MenuTile(
             icon: Icons.history_rounded,
             title: 'Riwayat Peminjaman',
             subtitle: 'Cek buku yang pernah dan sedang kamu pinjam.',
-            onTap: _comingSoon,
+            onTap: () => _open(const BorrowingHistoryScreen()),
           ),
           _MenuTile(
             icon: Icons.settings_outlined,
             title: 'Pengaturan Aplikasi',
             subtitle: 'Sesuaikan pengalaman membaca sesuai kebutuhanmu.',
-            onTap: _comingSoon,
+            onTap: () => _open(const SettingsScreen()),
           ),
           _MenuTile(
             icon: Icons.logout_rounded,
@@ -212,6 +245,55 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Dialog ubah nama. Controller dibuat & di-dispose di dalam State-nya
+/// sendiri supaya aman dari error `_dependents.isEmpty`.
+class _EditNameDialog extends StatefulWidget {
+  final String initialName;
+  const _EditNameDialog({required this.initialName});
+
+  @override
+  State<_EditNameDialog> createState() => _EditNameDialogState();
+}
+
+class _EditNameDialogState extends State<_EditNameDialog> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Ubah Nama'),
+      content: TextField(
+        controller: _ctrl,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(labelText: 'Nama'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Batal'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _ctrl.text.trim()),
+          child: const Text('Simpan'),
+        ),
+      ],
     );
   }
 }
